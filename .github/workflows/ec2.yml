@@ -1,0 +1,75 @@
+name: Provision 3 EC2 Servers on AWS
+
+on:
+  workflow_dispatch:   # allows manual trigger from GitHub Actions tab
+
+jobs:
+  provision:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Provision 3 EC2 Instances
+        id: create_instances
+        run: |
+          echo "Launching 3 EC2 instances..."
+
+          WEB_ID=$(aws ec2 run-instances \
+            --image-id ami-0c55b159cbfafe1f0 \
+            --count 1 \
+            --instance-type t2.micro \
+            --key-name my-keypair \
+            --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=WebServer}]' \
+            --query 'Instances[0].InstanceId' \
+            --output text)
+
+          APP_ID=$(aws ec2 run-instances \
+            --image-id ami-0c55b159cbfafe1f0 \
+            --count 1 \
+            --instance-type t2.micro \
+            --key-name my-keypair \
+            --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=AppServer}]' \
+            --query 'Instances[0].InstanceId' \
+            --output text)
+
+          DB_ID=$(aws ec2 run-instances \
+            --image-id ami-0c55b159cbfafe1f0 \
+            --count 1 \
+            --instance-type t2.micro \
+            --key-name my-keypair \
+            --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=DBServer}]' \
+            --query 'Instances[0].InstanceId' \
+            --output text)
+
+          echo "WebServer: $WEB_ID"
+          echo "AppServer: $APP_ID"
+          echo "DBServer:  $DB_ID"
+
+          echo "WEB_ID=$WEB_ID" >> $GITHUB_OUTPUT
+          echo "APP_ID=$APP_ID" >> $GITHUB_OUTPUT
+          echo "DB_ID=$DB_ID"  >> $GITHUB_OUTPUT
+
+      - name: Wait for instances to be running
+        run: |
+          aws ec2 wait instance-running --instance-ids \
+            ${{ steps.create_instances.outputs.WEB_ID }} \
+            ${{ steps.create_instances.outputs.APP_ID }} \
+            ${{ steps.create_instances.outputs.DB_ID }}
+
+      - name: Fetch Public IPs
+        run: |
+          echo "Fetching Public IPs..."
+          aws ec2 describe-instances --instance-ids \
+            ${{ steps.create_instances.outputs.WEB_ID }} \
+            ${{ steps.create_instances.outputs.APP_ID }} \
+            ${{ steps.create_instances.outputs.DB_ID }} \
+            --query 'Reservations[].Instances[].PublicIpAddress' --output table
